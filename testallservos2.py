@@ -1,23 +1,10 @@
-# SPDX-FileCopyrightText: 2018 Kattni Rembor for Adafruit Industries
-#
-# SPDX-License-Identifier: MIT
+from adafruit_servokit import ServoKit
+kit = ServoKit(channels=16)
+pwm.set_pwm_freq(1000)
+kit.servo[0].set_pulse_width_range(1000, 2000)
 
-import time
-import board
-import pwmio
-from adafruit_motor import servo
+kit.servo[0].angle = 180
+time.sleep(1)
+kit.servo[0].angle = 0
+time.sleep(1)
 
-# This line creates a PWMOut object on Pin D5 with a 50% duty cycle and a frequency of 50Hz.
-pwm = pwmio.PWMOut(board.D0, duty_cycle=2 ** 15, frequency=50)
-
-# Create a servo object.
-servo = servo.Servo(pwm)
-
-while True:
-    for angle in range(0, 180, 5):  # 0 - 180 degrees, 5 degrees at a time.
-        servo.angle = angle
-        print("Sleeping for 0.05 seconds")
-        time.sleep(0.15)
-    for angle in range(180, 0, -5): # 180 - 0 degrees, 5 degrees at a time.
-        servo.angle = angle
-        time.sleep(0.15)
