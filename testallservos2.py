@@ -7,12 +7,12 @@ from adafruit_servokit import ServoKit
 
 # Set channels to the number of servo channels on your kit.
 # 8 for FeatherWing, 16 for Shield/HAT/Bonnet.
-kit = ServoKit(channels=8)
+kit = ServoKit(channels=16)
 
 while True:
     kit.servo[0].angle = 180
     print("Servo 0, Angle = 180")
-    time.sleep(1)
+    time.sleep(60)
     kit.servo[0].angle = 0
     print("Servo 0, Angle = 0")
-    time.sleep(1)
+    time.sleep(60)
