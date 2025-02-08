@@ -11,7 +11,7 @@ kit = ServoKit(channels=8)
 
 
 while True:
-    x = input("Enter servo number to set ({}), or anything else to exit: ".format(i))
+    x = input("Enter servo number to set ({}), or anything else to exit: ")
     if x == str(i):
         kit.continuous_servo[i].throttle = 1
         print("Servo {}, Throttle = 1".format(i))
