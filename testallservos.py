@@ -9,12 +9,61 @@ from adafruit_servokit import ServoKit
 # 8 for FeatherWing, 16 for Shield/HAT/Bonnet.
 kit = ServoKit(channels=8)
 
-for i in range(6):
-    x = input("Enter servo number to set ({}), or anything else to exit: ")
-    if x == str(i):
-        kit.continuous_servo[i].throttle = 1
-        print("Servo {}, Throttle = 1".format(i))
-        time.sleep(1)
-        kit.continuous_servo[i].throttle = -1
-        print("Servo {}, Throttle = -1".format(i))
-        time.sleep(1)
+
+# for i in range(6):
+#     x = input("Enter servo number to set ({}), or anything else to exit: ")
+#     if x == str(i):
+#         kit.continuous_servo[i].throttle = 1
+#         print("Servo {}, Throttle = 1".format(i))
+#         time.sleep(1)
+#         kit.continuous_servo[i].throttle = -1
+#         print("Servo {}, Throttle = -1".format(i))
+#         time.sleep(1)
+r = input()
+while True:
+
+    servo_number = r  # Change this to test other servos (0-5)
+    
+    match servo_number:
+        case 0:
+            kit.continuous_servo[0].throttle = 1
+            print("Servo 0, Throttle = 1")
+            time.sleep(1)
+            kit.continuous_servo[0].throttle = -1
+            print("Servo 0, Throttle = -1")
+            time.sleep(1)
+        case 1:
+            kit.continuous_servo[1].throttle = 1
+            print("Servo 1, Throttle = 1")
+            time.sleep(1)
+            kit.continuous_servo[1].throttle = -1
+            print("Servo 1, Throttle = -1")
+            time.sleep(1)
+        case 2:
+            kit.continuous_servo[2].throttle = 1
+            print("Servo 2, Throttle = 1")
+            time.sleep(1)
+            kit.continuous_servo[2].throttle = -1
+            print("Servo 2, Throttle = -1")
+            time.sleep(1)
+        case 3:
+            kit.continuous_servo[3].throttle = 1
+            print("Servo 3, Throttle = 1")
+            time.sleep(1)
+            kit.continuous_servo[3].throttle = -1
+            print("Servo 3, Throttle = -1")
+            time.sleep(1)
+        case 4:
+            kit.continuous_servo[4].throttle = 1
+            print("Servo 4, Throttle = 1")
+            time.sleep(1)
+            kit.continuous_servo[4].throttle = -1
+            print("Servo 4, Throttle = -1")
+            time.sleep(1)
+        case 5:
+            kit.continuous_servo[5].throttle = 1
+            print("Servo 5, Throttle = 1")
+            time.sleep(1)
+            kit.continuous_servo[5].throttle = -1
+            print("Servo 5, Throttle = -1")
+            time.sleep(1)
