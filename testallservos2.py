@@ -1,4 +1,5 @@
 from gpiozero import Servo
+import sleep
 
 servo = Servo(0)
 
