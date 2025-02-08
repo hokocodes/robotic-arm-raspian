@@ -12,7 +12,7 @@ kit = ServoKit(channels=16)
 while True:
     kit.servo[0].angle = 180
     print("Servo 0, Angle = 180")
-    time.sleep(60)
+    time.sleep(10)
     kit.servo[0].angle = 0
     print("Servo 0, Angle = 0")
-    time.sleep(60)
+    time.sleep(10)
