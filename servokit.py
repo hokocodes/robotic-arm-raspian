@@ -22,12 +22,17 @@ if r=="1":
 elif r=="2":
     while True:
         kit.continuous_servo[0].throttle = 1
+        print("Throttle = 1")
         time.sleep(1)
         kit.continuous_servo[0].throttle = -1
+        print("Throttle = -1")
         time.sleep(1)
         kit.servo[0].angle = 0
+        print("Servo angle = 0")
         time.sleep(1)
         kit.continuous_servo[0].throttle = 0
+        print("Throttle = 0")
+        time.sleep(1)
 
 
 
