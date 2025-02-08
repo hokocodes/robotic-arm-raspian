@@ -19,9 +19,9 @@ kit = ServoKit(channels=8)
 #         kit.continuous_servo[i].throttle = -1
 #         print("Servo {}, Throttle = -1".format(i))
 #         time.sleep(1)
-r = input()
-while True:
 
+while True:
+    r = input()
     servo_number = r  # Change this to test other servos (0-5)
     
     if servo_number == "0":
@@ -67,5 +67,5 @@ while True:
         print("Servo 5, Throttle = -1")
         time.sleep(1)
 
-    servo_number = input()
+    
 
