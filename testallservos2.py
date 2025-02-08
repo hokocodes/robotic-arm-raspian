@@ -1,12 +1,5 @@
 from gpiozero import Servo
-from time import sleep
+from gpiozero.pins.pigpio import PiGPIOFactory
 
-servo = Servo(0)
-
-while True:
-    servo.min()
-    sleep(1)
-    servo.mid()
-    sleep(1)
-    servo.max()
-    sleep(1)
+factory = PiGPIOFactory()
+servo = Servo(0, pin_factory=factory)
