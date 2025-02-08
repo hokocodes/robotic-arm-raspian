@@ -3,3 +3,4 @@ adafruit-circuitpython-pca9685
 adafruit-blinka
 gpiozero
 pigpio
+adafruit-circuitpython-motor
