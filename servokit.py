@@ -12,20 +12,22 @@ kit = ServoKit(channels=8)
 r = input()
 
 if r=="1":
-    kit.servo[0].angle = 180
-    time.sleep(1)
-    kit.servo[0].angle = 0
-    time.sleep(1)
-    kit.servo[0].angle = 360
-    time.sleep(1)
+    while True:
+        kit.servo[0].angle = 180
+        time.sleep(1)
+        kit.servo[0].angle = 0
+        time.sleep(1)
+        kit.servo[0].angle = 360
+        time.sleep(1)
 elif r=="2":
-    kit.continuous_servo[0].throttle = 1
-    time.sleep(1)
-    kit.continuous_servo[0].throttle = -1
-    time.sleep(1)
-    kit.servo[0].angle = 0
-    time.sleep(1)
-    kit.continuous_servo[0].throttle = 0
+    while True:
+        kit.continuous_servo[0].throttle = 1
+        time.sleep(1)
+        kit.continuous_servo[0].throttle = -1
+        time.sleep(1)
+        kit.servo[0].angle = 0
+        time.sleep(1)
+        kit.continuous_servo[0].throttle = 0
 
 
 
