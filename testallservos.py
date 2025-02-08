@@ -9,10 +9,8 @@ from adafruit_servokit import ServoKit
 # 8 for FeatherWing, 16 for Shield/HAT/Bonnet.
 kit = ServoKit(channels=8)
 
-r = input()
 
-
-for i in range(6):
+while True:
     x = input("Enter servo number to set ({}), or anything else to exit: ".format(i))
     if x == str(i):
         kit.continuous_servo[i].throttle = 1
