@@ -12,39 +12,12 @@ kit = ServoKit(channels=8)
 r = input()
 
 
-kit.continuous_servo[0].throttle = 1
-print("Servo 0, Throttle = 1")
-time.sleep(1)
-kit.continuous_servo[0].throttle = -1
-print("Servo 0, Throttle = -1")
-time.sleep(1)
-kit.continuous_servo[1].throttle = 1
-print("Servo 1, Throttle = 1")
-time.sleep(1)
-kit.continuous_servo[1].throttle = -1
-print("Servo 1,Throttle = -1")
-time.sleep(1)
-kit.continuous_servo[2].throttle = 1
-print("Servo 2, Throttle = 1")
-time.sleep(1)
-kit.continuous_servo[2].throttle = -1
-print("Servo 2, Throttle = -1")
-time.sleep(1)
-kit.continuous_servo[3].throttle = 1
-print("Servo 3, Throttle = 1")
-time.sleep(1)
-kit.continuous_servo[3].throttle = -1
-print("Servo 3, Throttle = -1")
-time.sleep(1)
-kit.continuous_servo[4].throttle = 1
-print("Servo 4, Throttle = 1")
-time.sleep(1)
-kit.continuous_servo[4].throttle = -1
-print("Servo 4, Throttle = -1")
-time.sleep(1)
-kit.continuous_servo[5].throttle = 1
-print("Servo 5, Throttle = 1")
-time.sleep(1)
-kit.continuous_servo[5].throttle = -1
-print("Servo 5, Throttle = -1")
-time.sleep(1)
+for i in range(6):
+    x = input("Enter servo number to set ({}), or anything else to exit: ".format(i))
+    if x == str(i):
+        kit.continuous_servo[i].throttle = 1
+        print("Servo {}, Throttle = 1".format(i))
+        time.sleep(1)
+        kit.continuous_servo[i].throttle = -1
+        print("Servo {}, Throttle = -1".format(i))
+        time.sleep(1)
