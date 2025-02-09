@@ -18,7 +18,7 @@ print("Servo 1, Angle = 0")
 time.sleep(5)
 
 r = input()
-    if r=="1":
+    if r == "1":
         kit.servo[0].angle = 180
         print("Servo 0, Angle = 180")
         time.sleep(5)
