@@ -127,3 +127,31 @@ while True:
         kit.servo[11].angle = 0
         print("Servo 11, Angle = 0")
         time.sleep(5)
+    elif r == "12":
+        kit.servo[12].angle = 180
+        print("Servo 12, Angle = 180")
+        time.sleep(5)
+        kit.servo[12].angle = 0
+        print("Servo 12, Angle = 0")
+        time.sleep(5)
+    elif r == "13":
+        kit.servo[13].angle = 180
+        print("Servo 13, Angle = 180")
+        time.sleep(5)
+        kit.servo[13].angle = 0
+        print("Servo 13, Angle = 0")
+        time.sleep(5)
+    elif r == "14":
+        kit.servo[14].angle = 180
+        print("Servo 14, Angle = 180")
+        time.sleep(5)
+        kit.servo[14].angle = 0
+        print("Servo 14, Angle = 0")
+        time.sleep(5)
+    elif r == "15":
+        kit.servo[15].angle = 180
+        print("Servo 15, Angle = 180")
+        time.sleep(5)
+        kit.servo[15].angle = 0
+        print("Servo 15, Angle = 0")
+        time.sleep(5)
