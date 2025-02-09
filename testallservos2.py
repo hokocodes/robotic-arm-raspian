@@ -7,15 +7,7 @@ kit.servo[1].set_pulse_width_range(1000, 2000)
 kit.servo[1].angle = 180
 print("Servo 1, Angle = 180")
 time.sleep(5)
-kit.servo[1].angle = 140
-print("Servo 1, Angle = 140")
-time.sleep(5)
-kit.servo[1].angle = 120
-print("Servo 1, Angle = 120")
-time.sleep(5)
-kit.servo[1].angle = 0
-print("Servo 1, Angle = 0")
-time.sleep(5)
+
 
 r = input()
 if r == "1":
