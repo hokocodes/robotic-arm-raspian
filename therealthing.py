@@ -84,7 +84,11 @@ def detect_objects(frame):
 
 # Capture camera feed
 logging.info("Opening camera feed...")
-cap = cv2.VideoCapture(0)
+try:
+    cap = cv2.VideoCapture(-1)
+except Exception as e:
+    logging.error("Failed to open camera: %s", e)
+    exit(1)
 
 def process_frame():
     logging.info("Starting frame processing...")
