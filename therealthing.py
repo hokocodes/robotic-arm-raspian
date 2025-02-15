@@ -15,7 +15,11 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 # Load pre-trained object detection model from TensorFlow Hub
 logging.info("Loading object detection model...")
-detector = hub.load("https://www.kaggle.com/models/tensorflow/faster-rcnn-inception-resnet-v2/TensorFlow2/640x640/1")
+try:
+    detector = hub.load("https://www.kaggle.com/models/tensorflow/faster-rcnn-inception-resnet-v2/TensorFlow2/640x640/1")
+except Exception as e:
+    logging.error("Failed to load object detection model: %s", e)
+    exit(1)
 
 # Object classes (You can update this list based on your model's expected output classes)
 LABELS = {1: "car key", 2: "bottle", 3: "cube"}  # Example labels
@@ -24,12 +28,12 @@ LABELS = {1: "car key", 2: "bottle", 3: "cube"}  # Example labels
 logging.info("Initializing robotic arm model...")
 arm_chain = Chain(name='robot_arm', links=[
     OriginLink(),
-    URDFLink(name="joint_1", translation_vector=[0, 0, 0.1], rotation=[0, 0, 1]),
-    URDFLink(name="joint_2", translation_vector=[0, 0, 0.2], rotation=[0, 1, 0]),
-    URDFLink(name="joint_3", translation_vector=[0, 0, 0.2], rotation=[0, 1, 0]),
-    URDFLink(name="joint_4", translation_vector=[0, 0, 0.15], rotation=[0, 1, 0]),
-    URDFLink(name="joint_5", translation_vector=[0, 0, 0.1], rotation=[0, 1, 0]),
-    URDFLink(name="joint_6", translation_vector=[0, 0, 0.05], rotation=[0, 1, 0]),
+    URDFLink(name="joint_1", origin_translation=[0, 0, 0.1], origin_orientation=[0, 0, 1]),
+    URDFLink(name="joint_2", origin_translation=[0, 0, 0.2], origin_orientation=[0, 1, 0]),
+    URDFLink(name="joint_3", origin_translation=[0, 0, 0.2], origin_orientation=[0, 1, 0]),
+    URDFLink(name="joint_4", origin_translation=[0, 0, 0.15], origin_orientation=[0, 1, 0]),
+    URDFLink(name="joint_5", origin_translation=[0, 0, 0.1], origin_orientation=[0, 1, 0]),
+    URDFLink(name="joint_6", origin_translation=[0, 0, 0.05], origin_orientation=[0, 1, 0]),
 ])
 
 # Initialize ServoKit for 16-channel PWM board
