@@ -31,7 +31,8 @@ kit = ServoKit(channels=16)
 
 # Function to move servos
 def move_arm(joint_angles):
-    for i, angle in enumerate(joint_angles[1:]):
+    working_servos = [0, 1, 12, 13, 14, 15]
+    for i, angle in zip(working_servos, joint_angles[1:1+len(working_servos)]):
         servo_angle = np.degrees(angle)  # Convert radians to degrees
         servo_angle = max(0, min(180, servo_angle))  # Clamp between 0-180 degrees
         kit.servo[i].angle = servo_angle

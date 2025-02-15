@@ -4,3 +4,4 @@ adafruit-blinka
 gpiozero
 pigpio
 adafruit-circuitpython-motor
+cv2
