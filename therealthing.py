@@ -96,7 +96,7 @@ def process_frame():
         ret, frame = cap.read()
         if not ret:
             logging.warning("Failed to read frame from camera.")
-            continue
+            break
         
         obj, conf = detect_objects(frame)
         if obj:
