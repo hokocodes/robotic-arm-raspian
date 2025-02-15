@@ -28,12 +28,13 @@ LABELS = {1: "car key", 2: "bottle", 3: "cube"}  # Example labels
 logging.info("Initializing robotic arm model...")
 arm_chain = Chain(name='robot_arm', links=[
     OriginLink(),
-    URDFLink(name="joint_1", origin_translation=[0, 0, 0.1], origin_orientation=[0, 0, 1]),
-    URDFLink(name="joint_2", origin_translation=[0, 0, 0.2], origin_orientation=[0, 1, 0]),
-    URDFLink(name="joint_3", origin_translation=[0, 0, 0.2], origin_orientation=[0, 1, 0]),
-    URDFLink(name="joint_4", origin_translation=[0, 0, 0.15], origin_orientation=[0, 1, 0]),
-    URDFLink(name="joint_5", origin_translation=[0, 0, 0.1], origin_orientation=[0, 1, 0]),
-    URDFLink(name="joint_6", origin_translation=[0, 0, 0.05], origin_orientation=[0, 1, 0]),
+
+    URDFLink(name="joint_1", origin_translation=[0, 0, 0.1], origin_orientation=[0, 0, 1], rotation=[0, 0, 0]),
+    URDFLink(name="joint_2", origin_translation=[0, 0, 0.2], origin_orientation=[0, 1, 0], rotation=[0, 0, 0]),
+    URDFLink(name="joint_3", origin_translation=[0, 0, 0.2], origin_orientation=[0, 1, 0], rotation=[0, 0, 0]),
+    URDFLink(name="joint_4", origin_translation=[0, 0, 0.15], origin_orientation=[0, 1, 0], rotation=[0, 0, 0]),
+    URDFLink(name="joint_5", origin_translation=[0, 0, 0.1], origin_orientation=[0, 1, 0], rotation=[0, 0, 0]),
+    URDFLink(name="joint_6", origin_translation=[0, 0, 0.05], origin_orientation=[0, 1, 0], rotation=[0, 0, 0]),
 ])
 
 # Initialize ServoKit for 16-channel PWM board
