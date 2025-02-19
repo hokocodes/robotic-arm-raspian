@@ -85,7 +85,7 @@ def detect_objects(frame):
 # Capture camera feed
 logging.info("Opening camera feed...")
 try:
-    cap = cv2.VideoCapture(-1)
+    cap = cv2.VideoCapture("nvarguscamerasrc ! video/x-raw(memory:NVMM), width=640, height=480, format=NV12, framerate=30/1 ! nvvidconv ! video/x-raw, format=BGRx ! videoconvert ! appsink", cv2.CAP_GSTREAMER)
 except Exception as e:
     logging.error("Failed to open camera: %s", e)
     exit(1)
