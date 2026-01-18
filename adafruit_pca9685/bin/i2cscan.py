@@ -1,4 +1,4 @@
-#!/home/hoko/robotic-arm-raspian/adafruit_pca9685/bin/python
+#!/home/hokospi/robotic-arm-raspian/adafruit_pca9685/bin/python3.13
 # -*- coding: utf-8 -*-
 
 # Copyright (c) 2018-2024, Emmanuel Blot <emmanuel.blot@free.fr>

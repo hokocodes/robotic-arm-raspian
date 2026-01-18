@@ -1,1 +1,5 @@
 */adafruit_pca9685/
+.DS_Store
+.env
+*.env
+!.env.example

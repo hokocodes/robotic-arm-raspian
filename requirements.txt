@@ -4,4 +4,11 @@ adafruit-blinka
 gpiozero
 pigpio
 adafruit-circuitpython-motor
-cv2
+opencv-python
+picamera2
+ikpy
+numpy
+flask
+requests
+python-dotenv
+google-cloud-vision
