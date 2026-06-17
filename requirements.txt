@@ -1,3 +1,7 @@
 adafruit-circuitpython-servokit
 adafruit-circuitpython-pca9685
 adafruit-blinka
+
+# Vision
+opencv-python
+numpy
