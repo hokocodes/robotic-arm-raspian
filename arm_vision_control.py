@@ -1,27 +1,31 @@
 #!/usr/bin/env python3
 """
-Click-to-target robotic arm controller
-=======================================
+Click-to-target robotic arm controller (WEB version)
+=====================================================
 The camera is FIXED to the LEFT of the robot arm, facing the workspace.
+Control everything from a web browser — no desktop GUI needed (works great
+over SSH, and you can control the arm from your laptop or phone too).
 
 How to use
 ----------
 1. Run:  python arm_vision_control.py
-2. A live camera window opens.
-3. LEFT-CLICK anywhere on the video to aim the arm at that spot.
-   The arm moves there immediately (video keeps playing).
-4. Click again to redirect the arm to a new spot.
+2. Open the URL it prints, e.g.  http://<your-pi-ip>:5000
+3. CLICK anywhere on the live video to aim the arm at that spot.
+   The arm moves there immediately.
+4. Use the on-screen buttons:
+     Grab  — open claw → move to target → close → retreat home
+     Home  — return arm to home position
 
-Keys
-----
-  Left-click  — aim arm at clicked point
-  G           — grab sequence (open claw → move → close → retreat home)
-  H           — return arm to home position
-  Q           — quit
+Why a web app?
+--------------
+Raspberry Pi OpenCV is often built without desktop-window (GUI) support, so
+cv2.imshow() fails with "The function is not implemented".  Streaming the video
+to a browser sidesteps that completely — cv2 is only used to capture and encode
+frames, never to open a window.
 
-Depth is computed by casting a ray from the camera through the clicked pixel
-and finding where it hits the table surface (z = TARGET_Z_CM).  No colour
-detection or object size needed.
+Depth is computed by casting a ray from the camera through the clicked pixel and
+finding where it hits the table surface (z = TARGET_Z_CM).  No colour detection
+or object-size calibration needed.
 
 Hardware
 --------
@@ -37,6 +41,7 @@ import time
 
 import cv2
 import numpy as np
+from flask import Flask, Response, jsonify, request
 
 # ── Hardware (ServoKit) ───────────────────────────────────────────────────────
 try:
@@ -117,16 +122,18 @@ CAM_Y =  30.0    # 30 cm to the LEFT  ← adjust to your actual distance
 CAM_Z =  20.0    # 20 cm above the table surface ← adjust to actual height
 
 # Camera faces RIGHT (–Y direction) to look into the workspace.
-# –90° means "rotated 90° clockwise from +X axis when viewed from above" = faces –Y.
 CAM_PAN_DEG  = -90.0   # do NOT change unless your camera faces a different way
 CAM_TILT_DEG =  15.0   # degrees tilted downward (0 = perfectly level)
 
 # ── Target height ─────────────────────────────────────────────────────────────
 # The script intersects the camera ray with a horizontal plane at this height.
-# Set to the height of the top surface of your objects above the table.
 #   0.0 = aim at the table surface itself
-#   3.0 = aim 3 cm above the table (top of a small object sitting on the table)
+#   3.0 = aim 3 cm above the table (top of a small object)
 TARGET_Z_CM = 3.0
+
+# ── Web server ────────────────────────────────────────────────────────────────
+WEB_HOST = "0.0.0.0"   # 0.0.0.0 = reachable from other devices on your network
+WEB_PORT = 5000
 
 # ── Motion smoothing ──────────────────────────────────────────────────────────
 SMOOTH_STEPS = 12      # more steps = slower but smoother movement
@@ -182,14 +189,11 @@ def ik_solve(x: float, y: float, z: float) -> dict[str, float] | None:
     Robot frame: +x=forward, +y=left, +z=up.
     Returns joint angles dict or None if target is unreachable.
     """
-    # Base (yaw): atan2 gives angle from +X axis; 90° offset puts 90° = forward
     base_deg = math.degrees(math.atan2(y, x)) + 90.0
 
-    # 2-link planar IK in the vertical sagittal plane
     reach = math.sqrt(x ** 2 + y ** 2)
     r     = math.sqrt(reach ** 2 + z ** 2)
 
-    # Scale back if beyond max reach (keeps arm as close as possible)
     max_r = (L1 + L2) * 0.98
     if r > max_r:
         scale = max_r / r
@@ -209,7 +213,6 @@ def ik_solve(x: float, y: float, z: float) -> dict[str, float] | None:
     shoulder_deg = 90.0 - math.degrees(shoulder_rad)
     elbow_deg    = 180.0 - math.degrees(elbow_rad)
 
-    # Keep wrist level with the ground
     wrist_deg = (90.0
                  + math.degrees(shoulder_rad)
                  + (math.degrees(elbow_rad) - 180.0))
@@ -219,11 +222,10 @@ def ik_solve(x: float, y: float, z: float) -> dict[str, float] | None:
         "base":        base_deg,
         "shoulder":    shoulder_deg,
         "elbow":       elbow_deg,
-        "lower_wrist": 90.0,   # keep wrist roll neutral
+        "lower_wrist": 90.0,
         "wrist":       wrist_deg,
     }
 
-    # Reject if any joint would exceed its limits
     for name, angle in angles.items():
         lo, hi = LIMITS[name]
         if not (lo - 2 <= angle <= hi + 2):
@@ -245,43 +247,24 @@ def pixel_to_robot_frame(cx: int, cy: int) -> tuple[float, float, float] | None:
     """Cast a ray from the camera through pixel (cx, cy) and find where it hits
     the horizontal plane at z = TARGET_Z_CM in the robot base frame.
 
-    Camera frame convention used here:
-      +x_cam = right in the image
-      +y_cam = up in the image (flipped from pixel y which grows downward)
-      +z_cam = forward (depth, into the scene)
-
-    Steps:
-      1. Pixel → ray direction in camera frame.
-      2. Rotate ray by camera tilt (around camera x-axis, nose down).
-      3. Rotate ray by camera pan (around world z-axis).
-      4. Ray origin = camera position (CAM_X, CAM_Y, CAM_Z).
-      5. Intersect ray with plane z = TARGET_Z_CM.
-
     Returns (x, y, z) in robot frame (cm), or None if ray misses the plane.
     """
     f = _focal_px()
 
-    # Pixel offset from image centre
     px_x = (cx - FRAME_W / 2.0) * (-1.0 if CAM_FLIP_IMAGE_X else 1.0)
     px_y = -(cy - FRAME_H / 2.0)  # flip: image y grows down, camera y grows up
 
-    # Ray direction in camera frame (unnormalized, z_cam=1 = forward)
+    # Ray direction in camera frame (x=right, y=up, z=forward)
     d = np.array([px_x / f, px_y / f, 1.0])
 
-    # ── Apply tilt (rotate around camera x-axis, positive = nose down) ────
+    # Tilt (rotate around camera x-axis, positive = nose down)
     tilt = math.radians(CAM_TILT_DEG)
     ct, st = math.cos(tilt), math.sin(tilt)
-    #   y' = y·cos(tilt) - z·sin(tilt)
-    #   z' = y·sin(tilt) + z·cos(tilt)
     d = np.array([d[0],
                   d[1] * ct - d[2] * st,
                   d[1] * st + d[2] * ct])
 
-    # ── Apply pan (rotate around world z-axis) ─────────────────────────────
-    # After rotation the camera's +z_cam faces in the pan direction.
-    # Robot frame:  x_r = z·cos(pan) - x·sin(pan)
-    #               y_r = z·sin(pan) + x·cos(pan)
-    #               z_r = y
+    # Pan (rotate around world z-axis)
     pan = math.radians(CAM_PAN_DEG)
     cp, sp = math.cos(pan), math.sin(pan)
     d_robot = np.array([
@@ -290,18 +273,14 @@ def pixel_to_robot_frame(cx: int, cy: int) -> tuple[float, float, float] | None:
         d[1],
     ])
 
-    # ── Ray: origin = camera position in robot frame ───────────────────────
     origin = np.array([CAM_X, CAM_Y, CAM_Z])
 
-    # ── Intersect with plane z = TARGET_Z_CM ──────────────────────────────
     dz = d_robot[2]
     if abs(dz) < 1e-6:
-        # Ray is nearly horizontal — will never hit the table plane
         return None
 
     t = (TARGET_Z_CM - origin[2]) / dz
     if t < 0:
-        # Intersection is behind the camera
         return None
 
     point = origin + t * d_robot
@@ -309,185 +288,288 @@ def pixel_to_robot_frame(cx: int, cy: int) -> tuple[float, float, float] | None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# HUD OVERLAY
+# SHARED STATE  (between camera thread, web requests, and motion threads)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def draw_hud(frame: np.ndarray,
-             click_pt: tuple[int, int] | None,
-             angles: dict | None,
-             robot_pos: tuple | None,
-             status: str,
-             is_moving: bool) -> None:
+app_state: dict = {
+    "click":     None,   # (cx, cy) pixel of last click (in FRAME_W×FRAME_H space)
+    "angles":    None,   # last IK solution
+    "robot_pos": None,   # last world position (x, y, z) cm
+    "status":    "Click on the target object",
+    "is_moving": False,
+}
 
-    # Marker at the clicked point
-    if click_pt:
-        cx, cy = click_pt
-        colour = (0, 140, 255) if is_moving else (0, 220, 100)
-        cv2.circle(frame, (cx, cy), 14, colour, 2)
-        cv2.drawMarker(frame, (cx, cy), colour, cv2.MARKER_CROSS, 28, 2)
-        cv2.putText(frame, "TARGET", (cx + 16, cy - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, colour, 1, cv2.LINE_AA)
+_latest_frame: np.ndarray | None = None
+_frame_lock = threading.Lock()
+_running = True
 
-    # Info panel (black box, top-left)
-    rows = 8 if angles else 4
-    panel_h = 22 + rows * 22
-    cv2.rectangle(frame, (0, 0), (270, panel_h), (0, 0, 0), -1)
-    cv2.rectangle(frame, (0, 0), (270, panel_h), (60, 60, 60), 1)
 
-    def txt(text: str, row: int, colour: tuple = (220, 220, 220)) -> None:
-        cv2.putText(frame, text, (8, 20 + row * 22),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.52, colour, 1, cv2.LINE_AA)
+# ═══════════════════════════════════════════════════════════════════════════════
+# CAMERA THREAD  — continuously grabs frames and draws the target marker
+# ═══════════════════════════════════════════════════════════════════════════════
 
-    status_col = ((0, 140, 255) if is_moving
-                  else (0, 220, 100) if angles
-                  else (80, 80, 255))
-    txt(f"Status : {status}", 0, status_col)
+def camera_loop() -> None:
+    global _latest_frame
 
-    if robot_pos:
-        rx, ry, rz = robot_pos
-        txt(f"Target : {rx:.1f}, {ry:.1f}, {rz:.1f} cm", 1)
-    else:
-        txt("Target : —", 1)
+    cap = cv2.VideoCapture(CAMERA_INDEX)
+    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  FRAME_W)
+    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
+
+    if not cap.isOpened():
+        print(f"[ERROR] Could not open camera index {CAMERA_INDEX}. "
+              "Try CAMERA_INDEX = 1 or 2.")
+        return
+
+    print("[VIS] Camera streaming started.")
+
+    while _running:
+        ret, frame = cap.read()
+        if not ret:
+            time.sleep(0.05)
+            continue
+
+        # Draw the clicked target marker on the frame
+        if app_state["click"]:
+            cx, cy = app_state["click"]
+            colour = (0, 140, 255) if app_state["is_moving"] else (0, 220, 100)
+            cv2.circle(frame, (cx, cy), 14, colour, 2)
+            cv2.drawMarker(frame, (cx, cy), colour, cv2.MARKER_CROSS, 28, 2)
+
+        with _frame_lock:
+            _latest_frame = frame
+
+    cap.release()
+    print("[VIS] Camera stopped.")
+
+
+def mjpeg_generator():
+    """Yield camera frames as an MJPEG stream for the browser."""
+    while _running:
+        with _frame_lock:
+            frame = None if _latest_frame is None else _latest_frame.copy()
+        if frame is None:
+            time.sleep(0.03)
+            continue
+        ok, jpg = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 80])
+        if not ok:
+            continue
+        yield (b"--frame\r\n"
+               b"Content-Type: image/jpeg\r\n\r\n" + jpg.tobytes() + b"\r\n")
+        time.sleep(0.03)   # ~30 fps cap
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MOTION WORKERS  (run in background threads so the web server stays responsive)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+def do_move(target_angles: dict) -> None:
+    app_state["is_moving"] = True
+    app_state["status"]    = "Moving…"
+    smooth_move(target_angles)
+    app_state["is_moving"] = False
+    app_state["status"]    = "Ready — click a new target or press Grab"
+
+
+def do_grab(target_angles: dict) -> None:
+    app_state["is_moving"] = True
+    app_state["status"]    = "Grabbing…"
+    _set_servo_raw("claw", LIMITS["claw"][0])   # open
+    time.sleep(0.3)
+    smooth_move(target_angles)
+    time.sleep(HOLD_SECONDS)
+    _set_servo_raw("claw", LIMITS["claw"][1])   # close
+    time.sleep(0.6)
+    time.sleep(HOLD_SECONDS)
+    _set_servo_raw("claw", LIMITS["claw"][0])   # release
+    time.sleep(0.3)
+    move_home()
+    app_state["is_moving"] = False
+    app_state["status"]    = "Ready — click on target"
+
+
+def do_home() -> None:
+    app_state["is_moving"] = True
+    app_state["status"]    = "Homing…"
+    move_home()
+    app_state["is_moving"] = False
+    app_state["angles"]    = None
+    app_state["status"]    = "Click on the target object"
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# WEB APP
+# ═══════════════════════════════════════════════════════════════════════════════
+
+app = Flask(__name__)
+
+PAGE = """<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Robotic Arm — Click to Aim</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin:0; background:#0d1117; color:#e6edf3;
+           font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 1.15rem; font-weight: 600; margin: 8px 0 14px; }
+    .feed { position: relative; line-height: 0; border-radius: 12px;
+            overflow: hidden; border: 1px solid #30363d; }
+    .feed img { width: 100%; height: auto; cursor: crosshair; display:block; }
+    .bar { display:flex; gap:10px; margin-top:14px; }
+    button { flex:1; padding:14px; font-size:1rem; font-weight:600;
+             border:none; border-radius:10px; cursor:pointer; color:#fff; }
+    .grab { background:#238636; } .grab:active { background:#1a6e2b; }
+    .home { background:#1f6feb; } .home:active { background:#1a5fce; }
+    .status { margin-top:14px; padding:12px 14px; background:#161b22;
+              border:1px solid #30363d; border-radius:10px; font-size:.95rem; }
+    .pos { color:#8b949e; font-size:.85rem; margin-top:6px; }
+    .hint { color:#8b949e; font-size:.85rem; margin-top:10px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>🦾 Robotic Arm — Click to Aim</h1>
+    <div class="feed">
+      <img id="feed" src="video_feed" alt="camera feed">
+    </div>
+    <div class="bar">
+      <button class="grab" onclick="send('grab')">Grab</button>
+      <button class="home" onclick="send('home')">Home</button>
+    </div>
+    <div class="status">
+      <div id="status">Loading…</div>
+      <div class="pos" id="pos"></div>
+    </div>
+    <div class="hint">Tap or click anywhere on the video to aim the arm there.</div>
+  </div>
+
+<script>
+const feed = document.getElementById('feed');
+
+feed.addEventListener('click', (e) => {
+  const r = feed.getBoundingClientRect();
+  const fx = (e.clientX - r.left) / r.width;   // 0..1 across the image
+  const fy = (e.clientY - r.top)  / r.height;  // 0..1 down the image
+  fetch('click', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ fx, fy })
+  });
+});
+
+function send(action) {
+  fetch(action, { method: 'POST' });
+}
+
+async function poll() {
+  try {
+    const r = await fetch('status');
+    const s = await r.json();
+    document.getElementById('status').textContent = 'Status: ' + s.status;
+    document.getElementById('pos').textContent = s.pos
+      ? `Target: ${s.pos[0].toFixed(1)}, ${s.pos[1].toFixed(1)}, ${s.pos[2].toFixed(1)} cm`
+      : '';
+  } catch (e) {}
+}
+setInterval(poll, 500);
+poll();
+</script>
+</body>
+</html>
+"""
+
+
+@app.route("/")
+def index():
+    return PAGE
+
+
+@app.route("/video_feed")
+def video_feed():
+    return Response(mjpeg_generator(),
+                    mimetype="multipart/x-mixed-replace; boundary=frame")
+
+
+@app.route("/click", methods=["POST"])
+def click():
+    if app_state["is_moving"]:
+        return jsonify(ok=False, status=app_state["status"])
+
+    data = request.get_json(force=True)
+    cx = int(max(0.0, min(1.0, data["fx"])) * FRAME_W)
+    cy = int(max(0.0, min(1.0, data["fy"])) * FRAME_H)
+    app_state["click"] = (cx, cy)
+
+    pos = pixel_to_robot_frame(cx, cy)
+    if pos is None:
+        app_state["status"]    = "Ray missed table — click lower"
+        app_state["angles"]    = None
+        app_state["robot_pos"] = None
+        return jsonify(ok=False, status=app_state["status"])
+
+    angles = ik_solve(*pos)
+    app_state["robot_pos"] = pos
+    app_state["angles"]    = angles
 
     if angles:
-        txt(f"Base   : {angles['base']:.0f}\u00b0",       2)
-        txt(f"Shldr  : {angles['shoulder']:.0f}\u00b0",   3)
-        txt(f"Elbow  : {angles['elbow']:.0f}\u00b0",      4)
-        txt(f"L.Wrist: {angles['lower_wrist']:.0f}\u00b0", 5)
-        txt(f"Wrist  : {angles['wrist']:.0f}\u00b0",      6)
+        threading.Thread(target=do_move, args=(angles,), daemon=True).start()
+        return jsonify(ok=True, status="Moving…")
+    else:
+        app_state["status"] = "Out of reach — click closer to arm"
+        return jsonify(ok=False, status=app_state["status"])
 
-    hint_row = 8 if angles else 3
-    txt("Click=aim  G=grab  H=home  Q=quit", hint_row, (160, 160, 80))
+
+@app.route("/grab", methods=["POST"])
+def grab():
+    if app_state["angles"] and not app_state["is_moving"]:
+        threading.Thread(target=do_grab,
+                         args=(app_state["angles"],), daemon=True).start()
+        return jsonify(ok=True)
+    if not app_state["angles"]:
+        app_state["status"] = "Click a target first, then press Grab"
+    return jsonify(ok=False, status=app_state["status"])
+
+
+@app.route("/home", methods=["POST"])
+def home():
+    if not app_state["is_moving"]:
+        threading.Thread(target=do_home, daemon=True).start()
+        return jsonify(ok=True)
+    return jsonify(ok=False, status=app_state["status"])
+
+
+@app.route("/status")
+def status():
+    return jsonify(status=app_state["status"],
+                   pos=app_state["robot_pos"],
+                   moving=app_state["is_moving"])
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# MAIN LOOP
+# ENTRY POINT
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def main() -> None:
     move_home()
 
-    cap = cv2.VideoCapture(CAMERA_INDEX)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  FRAME_W)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
-    if not cap.isOpened():
-        raise RuntimeError(
-            f"Could not open camera index {CAMERA_INDEX}. "
-            "Try changing CAMERA_INDEX to 1 or 2."
-        )
+    # Start camera capture in the background
+    threading.Thread(target=camera_loop, daemon=True).start()
 
-    WINDOW = "Robotic Arm — Click to Aim"
-    cv2.namedWindow(WINDOW)
+    print("\n" + "=" * 56)
+    print("  Robotic Arm web control is running!")
+    print(f"  On this Pi:        http://localhost:{WEB_PORT}")
+    print(f"  From your phone/PC: http://<your-pi-ip>:{WEB_PORT}")
+    print("  (find the Pi's IP with:  hostname -I )")
+    print("=" * 56 + "\n")
 
-    # Shared mutable state (main thread writes click; worker thread reads it)
-    app: dict = {
-        "click":     None,   # (cx, cy) pixel of last click
-        "new_click": False,  # True when a click hasn't been processed yet
-        "angles":    None,   # last computed IK solution
-        "robot_pos": None,   # last computed world position
-        "status":    "Click on the target object",
-        "is_moving": False,
-    }
-
-    def on_mouse(event: int, x: int, y: int, flags: int, _param) -> None:
-        if event == cv2.EVENT_LBUTTONDOWN:
-            app["click"]     = (x, y)
-            app["new_click"] = True
-
-    cv2.setMouseCallback(WINDOW, on_mouse)
-
-    print("[VIS] Camera ready.")
-    print("      Left-click on target in the video → arm aims there")
-    print("      G = grab sequence   H = home   Q = quit")
-
-    # ── Worker: runs servo movement without blocking the video loop ───────────
-    def do_move(target_angles: dict) -> None:
-        app["is_moving"] = True
-        app["status"]    = "Moving…"
-        smooth_move(target_angles)
-        app["is_moving"] = False
-        app["status"]    = "Ready — click a new target or press G"
-
-    def do_grab(target_angles: dict) -> None:
-        app["is_moving"] = True
-        app["status"]    = "Grabbing…"
-        _set_servo_raw("claw", LIMITS["claw"][0])    # open
-        time.sleep(0.3)
-        smooth_move(target_angles)
-        time.sleep(HOLD_SECONDS)
-        _set_servo_raw("claw", LIMITS["claw"][1])    # close
-        time.sleep(0.6)
-        time.sleep(HOLD_SECONDS)
-        _set_servo_raw("claw", LIMITS["claw"][0])    # release
-        time.sleep(0.3)
-        move_home()
-        app["is_moving"] = False
-        app["status"]    = "Ready — click on target"
-
-    def do_home() -> None:
-        app["is_moving"] = True
-        app["status"]    = "Homing…"
-        move_home()
-        app["is_moving"] = False
-        app["angles"]    = None
-        app["status"]    = "Click on the target object"
-
-    # ── Main video + control loop ─────────────────────────────────────────────
     try:
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                time.sleep(0.05)
-                continue
-
-            # Process new click (only when arm is free)
-            if app["new_click"] and not app["is_moving"]:
-                app["new_click"] = False
-                cx, cy = app["click"]
-
-                pos = pixel_to_robot_frame(cx, cy)
-                if pos is None:
-                    app["status"]    = "Ray missed table — click lower"
-                    app["angles"]    = None
-                    app["robot_pos"] = None
-                else:
-                    angles = ik_solve(*pos)
-                    app["robot_pos"] = pos
-                    app["angles"]    = angles
-                    if angles:
-                        threading.Thread(
-                            target=do_move, args=(angles,), daemon=True
-                        ).start()
-                    else:
-                        app["status"] = "Out of reach — click closer to arm"
-
-            draw_hud(frame,
-                     app["click"],
-                     app["angles"],
-                     app["robot_pos"],
-                     app["status"],
-                     app["is_moving"])
-            cv2.imshow(WINDOW, frame)
-
-            key = cv2.waitKey(1) & 0xFF
-
-            if key == ord('q'):
-                break
-
-            elif key == ord('h') and not app["is_moving"]:
-                threading.Thread(target=do_home, daemon=True).start()
-
-            elif key == ord('g'):
-                if app["angles"] and not app["is_moving"]:
-                    threading.Thread(
-                        target=do_grab, args=(app["angles"],), daemon=True
-                    ).start()
-                elif not app["angles"]:
-                    app["status"] = "Click a target first, then press G"
-
+        app.run(host=WEB_HOST, port=WEB_PORT, threaded=True)
     finally:
-        cap.release()
-        cv2.destroyAllWindows()
+        global _running
+        _running = False
+        time.sleep(0.2)
         move_home()
         print("[INFO] Shut down cleanly.")
 
