@@ -12,26 +12,15 @@
 
 ## Overview 🔨
 
-A Raspberry Pi 4 robotic arm project with **camera-based object detection**. A fixed side-mounted camera detects objects by colour, estimates their distance, and moves the arm to touch them using inverse kinematics.
+A Raspberry Pi 4 robotic arm with **click-to-aim camera control**.
+
+A fixed camera sits to the **left of the arm**, looking at the workspace.
+Click anywhere on the live camera feed — the arm immediately moves to that spot.
+No colour detection, no calibration objects needed.
 
 - 5 working servos: base, shoulder, elbow, lower wrist, wrist
 - Servo channels: **1, 2, 13, 14, 15** on a 16-channel PCA9685 board
-- Pulse width range: **1000–2000 µs** (confirmed from servo tests)
-
-<br />
-
-## Tech Stack
-
-- **Language:** Python 3
-- **Libraries:** OpenCV, adafruit-servokit, NumPy
-- **Hardware:** Raspberry Pi 4, PCA9685 servo driver (I2C), USB/Pi camera
-- **Version Control:** Git and GitHub
-
-<br />
-
-## Gallery
-
-<a href='https://youtube.com/shorts/JnGvtVqmeKE?si=3DLGpbV85BaUr5AF'>Click here for video of the robotic arm</a>
+- Pulse width range: **1000–2000 µs**
 
 <br />
 
@@ -39,11 +28,29 @@ A Raspberry Pi 4 robotic arm project with **camera-based object detection**. A f
 
 | File | Description |
 |---|---|
-| `arm_vision_control.py` | **Main script** — camera detects object, arm moves to touch it |
-| `color_tuner.py` | Helper to tune colour detection for your target object |
+| `arm_vision_control.py` | **Main script** — live video, click to aim, arm follows |
+| `color_tuner.py` | HSV colour tuner (only needed if you add colour detection later) |
 | `test/testallservos2.py` | Test individual servos by channel number |
 | `test/testallservos.py` | Continuous servo test |
 | `one.py` | Basic single-servo test |
+
+<br />
+
+## How it works
+
+```
+You click a point on the camera video
+         ↓
+A ray is cast from the camera through that pixel
+         ↓
+The ray intersects the table surface (at TARGET_Z_CM height)
+         ↓
+Inverse kinematics converts that 3-D point to servo angles
+         ↓
+The arm smoothly moves there (video keeps playing)
+```
+
+No object-size calibration or colour setup required.
 
 <br />
 
@@ -67,82 +74,80 @@ Connect each servo to the PCA9685 board on these channels:
 | Lower wrist (rolls) | 14 |
 | Wrist (tilts claw) | 15 |
 
-### 3. Tune colour detection for your object
+### 3. Mount the camera
 
-Run the colour tuner and adjust the sliders until only your target object appears white:
+Place the camera to the **left of the robot base**, facing right toward the workspace.
 
-```bash
-python color_tuner.py
+```
+  TOP VIEW
+
+  +X (forward — arm points this way)
+   ^
+   |
+[camera] ──── robot base ────
+(left side)
 ```
 
-Press **S** to print the values, then copy them into `arm_vision_control.py` under `COLOR_LOWER1 / COLOR_UPPER1`.
+### 4. Measure and set your camera position
 
-### 4. Configure the camera mounting position
-
-Open `arm_vision_control.py` and fill in the **CAMERA MOUNTING** section near the top.
-Measure from your robot base to where the camera is physically sitting:
+Open `arm_vision_control.py` and update the mounting values near the top:
 
 ```python
-CAM_X =   0.0    # cm forward/back from robot base
-CAM_Y = -30.0    # cm left(+) or right(-) from robot base
-CAM_Z =  20.0    # cm above the table
-
-CAM_PAN_DEG  = 90.0   # direction camera faces (90 = facing left, toward arm)
-CAM_TILT_DEG = 15.0   # degrees tilted downward
+CAM_X =   0.0    # cm forward/back from robot base (0 = level with base)
+CAM_Y =  30.0    # cm to the LEFT of the robot base  ← measure this
+CAM_Z =  20.0    # cm above the table                ← measure this
 ```
 
-**Quick guide for CAM_PAN_DEG:**
-- Camera on the **right** side, facing the arm → `90`
-- Camera on the **left** side, facing the arm → `-90`
-- Camera **behind** the arm, facing forward → `0`
-- Camera **in front** of the arm, facing it → `180`
+Leave `CAM_PAN_DEG = -90.0` and `CAM_TILT_DEG = 15.0` — these are correct for a
+left-side camera facing the workspace. Adjust tilt if your camera is more/less angled.
 
-### 5. Set your arm dimensions
-
-Measure your arm's physical link lengths in cm and update:
+### 5. Set target height
 
 ```python
-L1 = 10.5   # shoulder → elbow (cm)
-L2 = 10.0   # elbow → lower wrist (cm)
-L3 = 5.5    # lower wrist → claw tip (cm)
+TARGET_Z_CM = 3.0   # cm above the table the arm aims for
+                    # 0 = table surface, 3 = top of a small object
 ```
 
-### 6. Set the object width
+### 6. Set your arm link lengths
 
-Set the real-world width of the object you want to grab:
+Measure each segment of your arm (in cm) and update:
 
 ```python
-KNOWN_OBJECT_WIDTH_CM = 6.0   # measure your object
+L1 = 10.5   # shoulder pivot → elbow pivot
+L2 = 10.0   # elbow pivot   → lower-wrist pivot
+L3 = 5.5    # lower-wrist   → claw tip
 ```
 
 <br />
 
-## Run — Vision Guided Mode
+## Run
 
 ```bash
 python arm_vision_control.py
 ```
 
-A camera window will open showing the live feed.
+A live camera window opens.
 
-| Key | Action |
+| Control | Action |
 |---|---|
-| **G** | Grab — moves arm to touch the detected object |
+| **Left-click** on video | Aim arm at that point — arm moves immediately |
+| **G** | Grab sequence: open claw → move to target → close → retreat home |
+| **H** | Return arm to home position |
 | **Q** | Quit |
 
-The HUD shows the detected object's depth, and the calculated servo angles in real time. When an object is detected and within reach, the status shows **"Ready — press G"**.
+The HUD shows the current status, the computed 3-D position, and all servo angles in real time.
 
 <br />
 
-## Run — Servo Tests
+## Servo Tests
 
-Test individual servos to verify wiring before running the vision script:
+Before running the main script, verify your wiring with the servo tester:
 
 ```bash
 python test/testallservos2.py
 ```
 
-Type a channel number (0–15) and press Enter to move that servo from 0° to 180°.
+Type a channel number (0–15) and press Enter to sweep that servo from 0° → 180°.
 
 <br />
 
@@ -150,11 +155,19 @@ Type a channel number (0–15) and press Enter to move that servo from 0° to 18
 
 | Problem | Fix |
 |---|---|
-| Arm moves in the wrong direction | Swap `CAM_PAN_DEG` by ±90° |
-| Left/right is mirrored on screen | Set `CAM_FLIP_IMAGE_X = True` |
-| Object not detected | Re-run `color_tuner.py` and update colour values |
-| "Out of reach" shown | Move the object closer, or increase `L1`/`L2` if your arm is longer |
-| Servos not moving | Check I2C wiring and run `test/testallservos2.py` first |
+| Arm moves in wrong direction (left/right swapped) | Set `CAM_FLIP_IMAGE_X = True` |
+| Arm reaches too far or not far enough | Adjust `CAM_Y` / `CAM_Z` to match your actual camera position |
+| "Ray missed table" shown on click | Click lower in the image (ray is going above the table plane) |
+| "Out of reach" shown | Click closer to the arm base, or check that `L1`/`L2` match your arm |
+| Arm aims too high/low | Adjust `TARGET_Z_CM` (higher value = arm aims higher above table) |
+| Wrong camera opens | Change `CAMERA_INDEX` from `0` to `1` or `2` |
+| Servos not moving | Run `test/testallservos2.py` to verify wiring first |
+
+<br />
+
+## Gallery
+
+<a href='https://youtube.com/shorts/JnGvtVqmeKE?si=3DLGpbV85BaUr5AF'>Click here for video of the robotic arm</a>
 
 <br />
 
