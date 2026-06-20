@@ -13,9 +13,10 @@ using the camera mounting position and orientation you configure below.
 Hardware
 --------
 - Raspberry Pi 4
-- PCA9685 servo driver via I2C
+- PCA9685 16-channel servo driver via I2C (adafruit_servokit.ServoKit)
 - USB or Pi camera mounted to the side (fixed, not on the arm)
-- 5 servos on channels 0-4; optional claw on channel 5
+- 5 working servos on channels 1, 2, 13, 14, 15
+  (channels confirmed in test/testallservos2.py and arm_vision_controller.py)
 
 Quick start
 -----------
@@ -55,35 +56,40 @@ import time
 import cv2
 import numpy as np
 
-# ── Hardware (PCA9685) ────────────────────────────────────────────────────────
+# ── Hardware (ServoKit — matches test/testallservos2.py) ─────────────────────
 try:
-    import board
-    import busio
-    from adafruit_pca9685 import PCA9685
+    from adafruit_servokit import ServoKit
 
-    _i2c = busio.I2C(board.SCL, board.SDA)
-    _pca = PCA9685(_i2c)
-    _pca.frequency = 50
+    _kit = ServoKit(channels=16)
+
+    # Set the same pulse-width range used in the servo tests
+    # (1000–2000 µs instead of the default 750–2250 µs)
+    _SERVO_CHANNELS_LIST = [1, 2, 13, 14, 15]
+    for _ch in _SERVO_CHANNELS_LIST:
+        _kit.servo[_ch].set_pulse_width_range(1000, 2000)
+
     HARDWARE = True
-    print("[INFO] PCA9685 found — servos active.")
+    print("[INFO] ServoKit initialised — servos active on channels 1,2,13,14,15.")
 except Exception as _e:
     HARDWARE = False
-    _pca = None
-    print(f"[WARN] PCA9685 not available ({_e}). Running in simulation mode.")
+    _kit = None
+    print(f"[WARN] ServoKit not available ({_e}). Running in simulation mode.")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # CONFIGURATION — edit these to match your robot
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# PCA9685 channel for each joint (set to None if not connected)
+# ServoKit channel for each joint
+# Channels confirmed from test/testallservos2.py and arm_vision_controller.py
+# (WORKING_SERVOS = 1, 2, 13, 14, 15)
 SERVO_CHANNEL = {
-    "base":        0,   # rotates the whole arm left/right
-    "shoulder":    1,   # raises/lowers the upper arm
-    "elbow":       2,   # bends the forearm
-    "lower_wrist": 3,   # rolls the wrist
-    "wrist":       4,   # tilts the claw up/down
-    "claw":        5,   # open / close  (None if your 6th servo is broken)
+    "base":        1,    # rotates the whole arm left/right
+    "shoulder":    2,    # raises/lowers the upper arm
+    "elbow":       13,   # bends the forearm
+    "lower_wrist": 14,   # rolls the wrist
+    "wrist":       15,   # tilts the claw up/down
+    "claw":        None, # 6th servo not working — set a channel number if it is
 }
 
 # Physical arm link lengths in centimetres — measure yours!
@@ -170,17 +176,8 @@ HOLD_SECONDS  = 1.0      # pause at target before retreating
 _state: dict[str, float] = dict(HOME)
 
 
-def _angle_to_duty(angle: float) -> int:
-    """Convert 0-180° to PCA9685 16-bit duty cycle.
-
-    Standard servo: 500 µs = 0°, 2500 µs = 180°, period = 20 000 µs.
-    """
-    pulse_us = 500 + (angle / 180.0) * 2000
-    return int(min(max(pulse_us / 20_000 * 65535, 0), 65535))
-
-
 def _set_servo_raw(name: str, angle: float) -> None:
-    """Write one servo angle (clamped to limits) immediately."""
+    """Write one servo angle (clamped to limits) immediately via ServoKit."""
     lo, hi = LIMITS[name]
     angle = max(lo, min(hi, angle))
     _state[name] = angle
@@ -188,9 +185,9 @@ def _set_servo_raw(name: str, angle: float) -> None:
     if ch is None:
         return
     if HARDWARE:
-        _pca.channels[ch].duty_cycle = _angle_to_duty(angle)
+        _kit.servo[ch].angle = angle   # ServoKit accepts degrees directly
     else:
-        print(f"  [SIM] {name:12s} → {angle:6.1f}°")
+        print(f"  [SIM] {name:12s} ch={ch!s:>3}  → {angle:6.1f}°")
 
 
 def move_home() -> None:
@@ -529,8 +526,6 @@ def main() -> None:
         cap.release()
         cv2.destroyAllWindows()
         move_home()
-        if HARDWARE and _pca is not None:
-            _pca.deinit()
         print("[INFO] Shut down cleanly.")
 
 
