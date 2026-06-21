@@ -183,11 +183,15 @@ def smooth_move(targets: dict[str, float]) -> None:
 # INVERSE KINEMATICS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def ik_solve(x: float, y: float, z: float) -> dict[str, float] | None:
+def ik_solve(x: float, y: float, z: float) -> dict[str, float]:
     """Compute joint angles to reach (x, y, z) cm in robot base frame.
 
     Robot frame: +x=forward, +y=left, +z=up.
-    Returns joint angles dict or None if target is unreachable.
+
+    Targets are NEVER rejected for being far away.  The arm always points
+    toward the target and extends as far as it can — if the target is beyond
+    full reach, the arm simply stretches out fully in that direction.
+    Every joint is clamped to its safe range, so a pose is always returned.
     """
     base_deg = math.degrees(math.atan2(y, x)) + 90.0
 
@@ -226,11 +230,11 @@ def ik_solve(x: float, y: float, z: float) -> dict[str, float] | None:
         "wrist":       wrist_deg,
     }
 
-    for name, angle in angles.items():
+    # Clamp every joint to its safe range — never reject a far target.
+    # The arm extends as far as it can toward the clicked direction.
+    for name in angles:
         lo, hi = LIMITS[name]
-        if not (lo - 2 <= angle <= hi + 2):
-            print(f"[IK ] {name} = {angle:.1f}° out of range [{lo}°,{hi}°]")
-            return None
+        angles[name] = max(lo, min(hi, angles[name]))
 
     return angles
 
@@ -275,13 +279,29 @@ def pixel_to_robot_frame(cx: int, cy: int) -> tuple[float, float, float] | None:
 
     origin = np.array([CAM_X, CAM_Y, CAM_Z])
 
+    # Distance to use when the ray doesn't cleanly hit the table plane
+    # (e.g. clicking above the horizon). We still aim the arm in that
+    # direction so it always moves toward the click — extension is handled
+    # by the IK solver, which clamps to full reach.
+    fallback_dist = (L1 + L2) * 1.5
+
     dz = d_robot[2]
     if abs(dz) < 1e-6:
-        return None
+        # Ray is horizontal: project a point straight out in its direction
+        point = origin + fallback_dist * d_robot
+        return float(point[0]), float(point[1]), TARGET_Z_CM
 
     t = (TARGET_Z_CM - origin[2]) / dz
     if t < 0:
-        return None
+        # Ray points away from the table plane (clicked above horizon):
+        # use the horizontal part of the ray at the target height instead.
+        horiz = np.array([d_robot[0], d_robot[1], 0.0])
+        n = np.linalg.norm(horiz)
+        if n < 1e-6:
+            return float(origin[0]), float(origin[1]), TARGET_Z_CM
+        horiz = horiz / n
+        point = origin + fallback_dist * horiz
+        return float(point[0]), float(point[1]), TARGET_Z_CM
 
     point = origin + t * d_robot
     return float(point[0]), float(point[1]), float(point[2])
@@ -624,22 +644,13 @@ def click():
     app_state["click"] = (cx, cy)
 
     pos = pixel_to_robot_frame(cx, cy)
-    if pos is None:
-        app_state["status"]    = "Ray missed table — click lower"
-        app_state["angles"]    = None
-        app_state["robot_pos"] = None
-        return jsonify(ok=False, status=app_state["status"])
-
     angles = ik_solve(*pos)
     app_state["robot_pos"] = pos
     app_state["angles"]    = angles
 
-    if angles:
-        threading.Thread(target=do_move, args=(angles,), daemon=True).start()
-        return jsonify(ok=True, status="Moving…")
-    else:
-        app_state["status"] = "Out of reach — click closer to arm"
-        return jsonify(ok=False, status=app_state["status"])
+    # The arm always moves toward the target — far targets just extend it fully.
+    threading.Thread(target=do_move, args=(angles,), daemon=True).start()
+    return jsonify(ok=True, status="Moving…")
 
 
 @app.route("/grab", methods=["POST"])
