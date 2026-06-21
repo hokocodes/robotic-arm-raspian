@@ -319,33 +319,89 @@ def _error_frame(message: str) -> np.ndarray:
     return f
 
 
-def _open_camera() -> cv2.VideoCapture | None:
-    """Try several backends and indices to open the camera robustly on Pi."""
-    # On Raspberry Pi, V4L2 is the most reliable backend.
-    # Try the configured index first, then 0, 1, 2 as fallbacks.
+class _CVCamera:
+    """Wrapper around an OpenCV VideoCapture (USB webcams)."""
+
+    def __init__(self, cap: "cv2.VideoCapture") -> None:
+        self._cap = cap
+
+    def read(self):
+        return self._cap.read()
+
+    def release(self) -> None:
+        self._cap.release()
+
+
+class _PiCamera:
+    """Wrapper around picamera2 (Raspberry Pi Camera Module via libcamera)."""
+
+    def __init__(self, picam2) -> None:
+        self._p = picam2
+
+    def read(self):
+        try:
+            frame = self._p.capture_array()
+            if frame is None:
+                return False, None
+            # picamera2 "RGB888" arrays are already BGR-ordered for OpenCV.
+            # 4-channel (XBGR) needs dropping the alpha channel.
+            if frame.ndim == 3 and frame.shape[2] == 4:
+                frame = cv2.cvtColor(frame, cv2.COLOR_BGRA2BGR)
+            return True, frame
+        except Exception:
+            return False, None
+
+    def release(self) -> None:
+        try:
+            self._p.stop()
+        except Exception:
+            pass
+
+
+def _open_camera():
+    """Open a camera, trying USB (OpenCV) first, then the Pi Camera Module.
+
+    Returns a camera wrapper with .read() and .release(), or None.
+    """
+    # ── 1. USB webcam via OpenCV VideoCapture ─────────────────────────────────
     indices  = list(dict.fromkeys([CAMERA_INDEX, 0, 1, 2]))
-    backends = []
-    try:
-        backends.append(("V4L2",    cv2.CAP_V4L2))
-    except AttributeError:
-        pass
-    backends.append(("default", cv2.CAP_ANY))
+    backends = [("V4L2", cv2.CAP_V4L2), ("default", cv2.CAP_ANY)]
 
     for idx in indices:
         for bname, backend in backends:
             try:
                 cap = cv2.VideoCapture(idx, backend)
             except Exception:
-                cap = cv2.VideoCapture(idx)
+                continue
             if cap.isOpened():
                 cap.set(cv2.CAP_PROP_FRAME_WIDTH,  FRAME_W)
                 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
-                # Confirm we can actually read a frame
                 ret, _ = cap.read()
                 if ret:
-                    print(f"[VIS] Camera opened — index={idx} backend={bname}")
-                    return cap
-                cap.release()
+                    print(f"[VIS] USB camera opened — index={idx} backend={bname}")
+                    return _CVCamera(cap)
+            cap.release()
+
+    # ── 2. Raspberry Pi Camera Module via picamera2 ──────────────────────────
+    try:
+        from picamera2 import Picamera2
+
+        picam2 = Picamera2()
+        config = picam2.create_preview_configuration(
+            main={"format": "RGB888", "size": (FRAME_W, FRAME_H)})
+        picam2.configure(config)
+        picam2.start()
+        time.sleep(0.5)   # let auto-exposure settle
+        if picam2.capture_array() is not None:
+            print("[VIS] Pi Camera Module opened via picamera2.")
+            return _PiCamera(picam2)
+        picam2.stop()
+    except ImportError:
+        print("[VIS] picamera2 not installed — skipping Pi Camera Module check.")
+        print("      For the Pi Camera Module run:  sudo apt install -y python3-picamera2")
+    except Exception as e:
+        print(f"[VIS] picamera2 failed to open the camera ({e}).")
+
     return None
 
 
@@ -354,14 +410,15 @@ def camera_loop() -> None:
 
     cap = _open_camera()
     if cap is None:
-        msg = ("No camera found. Check connection | "
-               "and set CAMERA_INDEX at the top | "
-               "of arm_vision_control.py")
+        msg = ("No camera found. | "
+               "USB camera: check it is plugged in | "
+               "Pi Camera Module: sudo apt install python3-picamera2 | "
+               "(and use a venv with --system-site-packages)")
         err = _error_frame(msg)
-        print("[ERROR] " + msg.replace("|", ""))
+        print("[ERROR] No camera found.")
         with _frame_lock:
             _latest_frame = err
-        app_state["status"] = "Camera not found — check connection"
+        app_state["status"] = "Camera not found — see terminal"
         return
 
     print("[VIS] Camera streaming started.")
