@@ -308,27 +308,84 @@ _running = True
 # CAMERA THREAD  — continuously grabs frames and draws the target marker
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _error_frame(message: str) -> np.ndarray:
+    """Return a black frame with a red error message — shown when camera fails."""
+    f = np.zeros((FRAME_H, FRAME_W, 3), dtype=np.uint8)
+    cv2.putText(f, "CAMERA ERROR", (30, FRAME_H // 2 - 30),
+                cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 220), 2, cv2.LINE_AA)
+    for i, line in enumerate(message.split("|")):
+        cv2.putText(f, line.strip(), (30, FRAME_H // 2 + 10 + i * 28),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.55, (160, 160, 160), 1, cv2.LINE_AA)
+    return f
+
+
+def _open_camera() -> cv2.VideoCapture | None:
+    """Try several backends and indices to open the camera robustly on Pi."""
+    # On Raspberry Pi, V4L2 is the most reliable backend.
+    # Try the configured index first, then 0, 1, 2 as fallbacks.
+    indices  = list(dict.fromkeys([CAMERA_INDEX, 0, 1, 2]))
+    backends = []
+    try:
+        backends.append(("V4L2",    cv2.CAP_V4L2))
+    except AttributeError:
+        pass
+    backends.append(("default", cv2.CAP_ANY))
+
+    for idx in indices:
+        for bname, backend in backends:
+            try:
+                cap = cv2.VideoCapture(idx, backend)
+            except Exception:
+                cap = cv2.VideoCapture(idx)
+            if cap.isOpened():
+                cap.set(cv2.CAP_PROP_FRAME_WIDTH,  FRAME_W)
+                cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
+                # Confirm we can actually read a frame
+                ret, _ = cap.read()
+                if ret:
+                    print(f"[VIS] Camera opened — index={idx} backend={bname}")
+                    return cap
+                cap.release()
+    return None
+
+
 def camera_loop() -> None:
     global _latest_frame
 
-    cap = cv2.VideoCapture(CAMERA_INDEX)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH,  FRAME_W)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
-
-    if not cap.isOpened():
-        print(f"[ERROR] Could not open camera index {CAMERA_INDEX}. "
-              "Try CAMERA_INDEX = 1 or 2.")
+    cap = _open_camera()
+    if cap is None:
+        msg = ("No camera found. Check connection | "
+               "and set CAMERA_INDEX at the top | "
+               "of arm_vision_control.py")
+        err = _error_frame(msg)
+        print("[ERROR] " + msg.replace("|", ""))
+        with _frame_lock:
+            _latest_frame = err
+        app_state["status"] = "Camera not found — check connection"
         return
 
     print("[VIS] Camera streaming started.")
 
+    consec_fails = 0
     while _running:
         ret, frame = cap.read()
         if not ret:
+            consec_fails += 1
+            if consec_fails > 30:
+                print("[WARN] Camera stopped sending frames. Trying to reopen…")
+                cap.release()
+                cap = _open_camera()
+                if cap is None:
+                    with _frame_lock:
+                        _latest_frame = _error_frame("Camera disconnected")
+                    break
+                consec_fails = 0
             time.sleep(0.05)
             continue
 
-        # Draw the clicked target marker on the frame
+        consec_fails = 0
+
+        # Draw the clicked target marker
         if app_state["click"]:
             cx, cy = app_state["click"]
             colour = (0, 140, 255) if app_state["is_moving"] else (0, 220, 100)
@@ -344,6 +401,13 @@ def camera_loop() -> None:
 
 def mjpeg_generator():
     """Yield camera frames as an MJPEG stream for the browser."""
+    # Wait up to 5 s for the first frame before giving up
+    for _ in range(100):
+        with _frame_lock:
+            if _latest_frame is not None:
+                break
+        time.sleep(0.05)
+
     while _running:
         with _frame_lock:
             frame = None if _latest_frame is None else _latest_frame.copy()
@@ -355,7 +419,7 @@ def mjpeg_generator():
             continue
         yield (b"--frame\r\n"
                b"Content-Type: image/jpeg\r\n\r\n" + jpg.tobytes() + b"\r\n")
-        time.sleep(0.03)   # ~30 fps cap
+        time.sleep(0.033)   # ~30 fps cap
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
