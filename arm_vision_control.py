@@ -32,7 +32,7 @@ Hardware
   Raspberry Pi 4
   PCA9685 16-channel servo driver (I2C) via adafruit_servokit
   USB or Pi camera, fixed to the LEFT of the robot base
-  5 working servos on channels 1, 2, 13, 14, 15
+  5 working servos on channels 0, 1, 12, 13, 14
 """
 
 import math
@@ -48,11 +48,11 @@ try:
     from adafruit_servokit import ServoKit
 
     _kit = ServoKit(channels=16)
-    for _ch in [1, 2, 13, 14, 15]:
+    for _ch in [0, 1, 12, 13, 14]:
         _kit.servo[_ch].set_pulse_width_range(1000, 2000)
 
     HARDWARE = True
-    print("[INFO] ServoKit ready — channels 1, 2, 13, 14, 15.")
+    print("[INFO] ServoKit ready — channels 0, 1, 12, 13, 14.")
 except Exception as _e:
     HARDWARE = False
     _kit = None
@@ -63,13 +63,13 @@ except Exception as _e:
 # CONFIGURATION — measure and adjust these to match your physical setup
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# Servo channel for each joint (confirmed from test/testallservos2.py)
+# Servo channel for each joint (from the test folder servo calibration)
 SERVO_CHANNEL = {
-    "base":        1,    # rotates the whole arm left/right
-    "shoulder":    2,    # raises/lowers the upper arm
-    "elbow":       13,   # bends the forearm
-    "lower_wrist": 14,   # rolls the wrist
-    "wrist":       15,   # tilts the claw up/down
+    "base":        0,    # rotates the whole arm left/right
+    "shoulder":    1,    # raises/lowers the upper arm
+    "elbow":       12,   # bends the forearm
+    "lower_wrist": 13,   # rolls the wrist
+    "wrist":       14,   # tilts the claw up/down
     "claw":        None, # not working — set a channel number if it is
 }
 
@@ -78,20 +78,32 @@ L1 = 10.5   # shoulder pivot → elbow pivot
 L2 = 10.0   # elbow pivot   → lower-wrist pivot
 L3 = 5.5    # lower-wrist   → claw tip
 
-# Safe angle limits per joint  [min°, max°]
+# Servo angle limits per CHANNEL — copied directly from the test folder
+# servo-limit calibration. These are the authoritative mechanical limits.
+#   channel: (min°, max°)
+SERVO_LIMITS = {
+    0:  (0,   180),   # full range — no mechanical limit
+    1:  (100, 180),
+    12: (80,  180),
+    13: (0,   180),
+    14: (0,   180),
+}
+
+# Joints without a calibrated channel (e.g. the claw) use these fallbacks.
+_FALLBACK_LIMITS = {
+    "claw": (0, 70),  # 0 = open, 70 = closed
+}
+
+# Safe angle limits per joint, derived from each joint's channel calibration.
 LIMITS = {
-    "base":        (0,   180),
-    "shoulder":    (30,  150),
-    "elbow":       (0,   150),
-    "lower_wrist": (0,   180),
-    "wrist":       (50,  130),
-    "claw":        (0,    70),  # 0 = open, 70 = closed
+    name: SERVO_LIMITS.get(ch, _FALLBACK_LIMITS.get(name, (0, 180)))
+    for name, ch in SERVO_CHANNEL.items()
 }
 
 # Resting / home angles
 HOME = {
     "base":        90,
-    "shoulder":    90,
+    "shoulder":    100,  # calibrated min is 100° (see SERVO_LIMITS)
     "elbow":       90,
     "lower_wrist": 90,
     "wrist":       90,
@@ -148,10 +160,36 @@ HOLD_SECONDS = 1.0    # how long to hold position after reaching target
 _state: dict[str, float] = dict(HOME)
 
 
-def _set_servo_raw(name: str, angle: float) -> None:
-    """Write one servo angle (clamped to limits) immediately."""
+# Absolute physical range a hobby servo can accept (degrees).
+SERVO_MIN_DEG = 0.0
+SERVO_MAX_DEG = 180.0
+
+
+def clamp_angle(name: str, angle: float) -> float:
+    """Return a safe angle for `name`: rejects NaN/None, enforces the per-joint
+    limit, and finally enforces the servo's physical 0–180° range."""
+    # Reject garbage values (NaN, inf, None) — fall back to current/home angle
+    if angle is None or not math.isfinite(angle):
+        return _state.get(name, HOME.get(name, 90.0))
+
     lo, hi = LIMITS[name]
-    angle = max(lo, min(hi, angle))
+    # Per-joint safe limit, then hard physical limit — whichever is tighter
+    lo = max(lo, SERVO_MIN_DEG)
+    hi = min(hi, SERVO_MAX_DEG)
+    return max(lo, min(hi, float(angle)))
+
+
+def _set_servo_raw(name: str, angle: float) -> None:
+    """Write one servo angle to the hardware, always clamped to safe limits."""
+    requested = angle
+    angle = clamp_angle(name, angle)
+
+    # Warn (once-ish) if the requested value had to be clamped
+    if (requested is not None and isinstance(requested, (int, float))
+            and math.isfinite(requested) and abs(requested - angle) > 0.5):
+        print(f"[LIMIT] {name}: requested {requested:.1f}° clamped to {angle:.1f}° "
+              f"(limit {LIMITS[name][0]}–{LIMITS[name][1]}°)")
+
     _state[name] = angle
     ch = SERVO_CHANNEL.get(name)
     if ch is None:
